@@ -51,7 +51,7 @@ extern "system" {
     //
     // SAFETY:
     //  - `hHeap` must be a non-null handle returned by `GetProcessHeap`.
-    //  - `dwFlags` must be set to zero.
+    //  - `dwFlags` must be set to either zero or `HEAP_ZERO_MEMORY`.
     //  - `lpMem` must be a non-null pointer to an allocated block returned by `HeapAlloc` or
     //     `HeapReAlloc`, that has not already been freed.
     // If the block was successfully reallocated at a new location, pointers pointing to
@@ -177,6 +177,31 @@ unsafe fn allocate(layout: Layout, zeroed: bool) -> *mut u8 {
     }
 }
 
+// Reallocate a block of optionally zeroed memory for a given `layout`.
+// SAFETY: Returns a pointer satisfying the guarantees of `System` about allocated pointers,
+// or null if the operation fails. If this returns non-null `HEAP` will have been successfully
+// initialized.
+#[inline]
+unsafe fn reallocate(ptr: *mut u8, layout: Layout, new_size: usize, zeroed: bool) -> *mut u8 {
+    if layout.align() <= MIN_ALIGN {
+        // SAFETY: because `ptr` has been successfully allocated with this allocator,
+        // `HEAP` must have been successfully initialized.
+        let heap = unsafe { get_process_heap() };
+
+        // Additional memory will be either zeroed or uninitialized.
+        let flags = if zeroed { HEAP_ZERO_MEMORY } else { 0 };
+
+        // SAFETY: `heap` is a non-null handle returned by `GetProcessHeap`,
+        // `ptr` is a pointer to the start of an allocated block.
+        // The returned pointer points to the start of an allocated block.
+        unsafe { HeapReAlloc(heap, flags, ptr as c::LPVOID, new_size) as *mut u8 }
+    } else {
+        // SAFETY: `realloc_fallback` is implemented using `dealloc` and `alloc`, which will
+        // correctly handle `ptr` and return a pointer satisfying the guarantees of `System`
+        unsafe { realloc_fallback(self, ptr, layout, new_size, zeroed) }
+    }
+}
+
 // All pointers returned by this allocator have, in addition to the guarantees of `GlobalAlloc`, the
 // following properties:
 //
@@ -228,19 +253,11 @@ unsafe impl GlobalAlloc for System {
 
     #[inline]
     unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
-        if layout.align() <= MIN_ALIGN {
-            // SAFETY: because `ptr` has been successfully allocated with this allocator,
-            // `HEAP` must have been successfully initialized.
-            let heap = unsafe { get_process_heap() };
+        reallocate(ptr, layout, new_size, false)
+    }
 
-            // SAFETY: `heap` is a non-null handle returned by `GetProcessHeap`,
-            // `ptr` is a pointer to the start of an allocated block.
-            // The returned pointer points to the start of an allocated block.
-            unsafe { HeapReAlloc(heap, 0, ptr as c::LPVOID, new_size) as *mut u8 }
-        } else {
-            // SAFETY: `realloc_fallback` is implemented using `dealloc` and `alloc`, which will
-            // correctly handle `ptr` and return a pointer satisfying the guarantees of `System`
-            unsafe { realloc_fallback(self, ptr, layout, new_size) }
-        }
+    #[inline]
+    unsafe fn realloc_zeroed(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+        reallocate(ptr, layout, new_size, true)
     }
 }

@@ -47,7 +47,7 @@ unsafe impl GlobalAlloc for System {
         if layout.align() <= MIN_ALIGN && layout.align() <= new_size {
             libc::realloc(ptr as *mut libc::c_void, new_size) as *mut u8
         } else {
-            realloc_fallback(self, ptr, layout, new_size)
+            realloc_fallback(self, ptr, layout, new_size, false)
         }
     }
 }

@@ -40,14 +40,19 @@ pub unsafe fn realloc_fallback(
     ptr: *mut u8,
     old_layout: Layout,
     new_size: usize,
+    zeroed: bool,
 ) -> *mut u8 {
+    let old_size = old_layout.size();
     // Docs for GlobalAlloc::realloc require this to be valid:
     let new_layout = Layout::from_size_align_unchecked(new_size, old_layout.align());
 
     let new_ptr = GlobalAlloc::alloc(alloc, new_layout);
     if !new_ptr.is_null() {
-        let size = cmp::min(old_layout.size(), new_size);
+        let size = cmp::min(old_size, new_size);
         ptr::copy_nonoverlapping(ptr, new_ptr, size);
+        if zeroed && new_size > old_size {
+            new_ptr.add(old_size).write_bytes(0, new_size - old_size);
+        }
         GlobalAlloc::dealloc(alloc, ptr, old_layout);
     }
     new_ptr
