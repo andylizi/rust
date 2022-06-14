@@ -272,4 +272,49 @@ pub unsafe trait GlobalAlloc {
         }
         new_ptr
     }
+
+    /// Behaves like `realloc`, but also ensures that additional memory (if any)
+    /// are set to zero before being returned.
+    ///
+    /// # Safety
+    ///
+    /// This function is unsafe for the same reasons that `realloc` is.
+    ///
+    /// However if `new_size` is larger than `layout.size()`, the reallocated block of memory
+    /// will contain the following contents after a successful call to `realloc_zeroed`:
+    ///   * Bytes `0..layout.size()` are preserved from the original allocation.
+    ///   * Bytes `layout.size()..new_size` are initialized to zero.
+    ///
+    /// # Errors
+    ///
+    /// Returns null if the new layout does not meet the size
+    /// and alignment constraints of the allocator, or if reallocation
+    /// otherwise fails.
+    ///
+    /// Implementations are encouraged to return null on memory
+    /// exhaustion rather than panicking or aborting, but this is not
+    /// a strict requirement. (Specifically: it is *legal* to
+    /// implement this trait atop an underlying native allocation
+    /// library that aborts on memory exhaustion.)
+    ///
+    /// Clients wishing to abort computation in response to a
+    /// reallocation error are encouraged to call the [`handle_alloc_error`] function,
+    /// rather than directly invoking `panic!` or similar.
+    ///
+    /// [`handle_alloc_error`]: ../../alloc/alloc/fn.handle_alloc_error.html
+    #[unstable(feature = "realloc_zeroed", issue = "none")]
+    unsafe fn realloc_zeroed(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+        let old_size = layout.size();
+        // SAFETY: the safety contract for `realloc` must be upheld by the caller.
+        let ptr = unsafe { self.realloc(ptr, layout, new_size) };
+        if !ptr.is_null() && new_size > old_size {
+            // SAFETY: as allocation succeeded, the region of
+            // `&mut ptr[old_size..new_size]` is guaranteed to be valid for writes.
+            // We've checked that `new_size > old_size`, therefore it cannot overflow.
+            unsafe {
+                ptr.add(old_size).write_bytes(0, new_size - old_size);
+            }
+        }
+        ptr
+    }
 }

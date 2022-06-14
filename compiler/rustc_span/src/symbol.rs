@@ -1108,6 +1108,7 @@ symbols! {
         read_struct_field,
         readonly,
         realloc,
+        realloc_zeroed,
         reason,
         receiver,
         recursion_limit,

@@ -165,17 +165,18 @@ impl System {
             // SAFETY: `new_size` is non-zero as `new_size` is greater than or equal to `old_size`
             // as required by safety conditions and the `old_size == 0` case was handled in the
             // previous match arm. Other conditions must be upheld by the caller
-            old_size if old_layout.align() == new_layout.align() => unsafe {
+            _ if old_layout.align() == new_layout.align() => unsafe {
                 let new_size = new_layout.size();
 
                 // `realloc` probably checks for `new_size >= old_layout.size()` or something similar.
                 intrinsics::assume(new_size >= old_layout.size());
 
-                let raw_ptr = GlobalAlloc::realloc(self, ptr.as_ptr(), old_layout, new_size);
+                let raw_ptr = if zeroed {
+                    GlobalAlloc::realloc_zeroed(self, ptr.as_ptr(), old_layout, new_size)
+                } else {
+                    GlobalAlloc::realloc(self, ptr.as_ptr(), old_layout, new_size)
+                };
                 let ptr = NonNull::new(raw_ptr).ok_or(AllocError)?;
-                if zeroed {
-                    raw_ptr.add(old_size).write_bytes(0, new_size - old_size);
-                }
                 Ok(NonNull::slice_from_raw_parts(ptr, new_size))
             },
 
@@ -408,6 +409,21 @@ pub mod __default_lib_allocator {
         unsafe {
             let layout = Layout::from_size_align_unchecked(size, align);
             System.alloc_zeroed(layout)
+        }
+    }
+
+    #[rustc_std_internal_symbol]
+    pub unsafe extern "C" fn __rdl_realloc_zeroed(
+        ptr: *mut u8,
+        old_size: usize,
+        align: usize,
+        new_size: usize,
+    ) -> *mut u8 {
+        // SAFETY: see the guarantees expected by `Layout::from_size_align` and
+        // `GlobalAlloc::realloc_zeroed`.
+        unsafe {
+            let old_layout = Layout::from_size_align_unchecked(old_size, align);
+            System.realloc_zeroed(ptr, old_layout, new_size)
         }
     }
 }

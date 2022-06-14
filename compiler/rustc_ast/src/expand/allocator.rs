@@ -50,4 +50,9 @@ pub static ALLOCATOR_METHODS: &[AllocatorMethod] = &[
         inputs: &[AllocatorTy::Layout],
         output: AllocatorTy::ResultPtr,
     },
+    AllocatorMethod {
+        name: sym::realloc_zeroed,
+        inputs: &[AllocatorTy::Ptr, AllocatorTy::Layout, AllocatorTy::Usize],
+        output: AllocatorTy::ResultPtr,
+    },
 ];

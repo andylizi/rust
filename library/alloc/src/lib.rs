@@ -128,6 +128,7 @@
 #![feature(ptr_internals)]
 #![feature(ptr_metadata)]
 #![feature(ptr_sub_ptr)]
+#![feature(realloc_zeroed)]
 #![feature(receiver_trait)]
 #![feature(set_ptr_value)]
 #![feature(slice_from_ptr_range)]

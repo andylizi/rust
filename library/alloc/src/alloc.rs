@@ -36,6 +36,13 @@ extern "Rust" {
     fn __rust_realloc(ptr: *mut u8, old_size: usize, align: usize, new_size: usize) -> *mut u8;
     #[rustc_allocator_nounwind]
     fn __rust_alloc_zeroed(size: usize, align: usize) -> *mut u8;
+    #[rustc_allocator_nounwind]
+    fn __rust_realloc_zeroed(
+        ptr: *mut u8,
+        old_size: usize,
+        align: usize,
+        new_size: usize,
+    ) -> *mut u8;
 }
 
 /// The global memory allocator.
@@ -160,6 +167,26 @@ pub unsafe fn alloc_zeroed(layout: Layout) -> *mut u8 {
     unsafe { __rust_alloc_zeroed(layout.size(), layout.align()) }
 }
 
+/// Reallocate memory with the global allocator,
+/// ensuring that additional memory (if any) are zero-initialized.
+///
+/// This function forwards calls to the [`GlobalAlloc::realloc_zeroed`] method
+/// of the allocator registered with the `#[global_allocator]` attribute
+/// if there is one, or the `std` crate’s default.
+///
+/// This function is expected to be deprecated in favor of the `grow_zeroed` method
+/// of the [`Global`] type when it and the [`Allocator`] trait become stable.
+///
+/// # Safety
+///
+/// See [`GlobalAlloc::realloc_zeroed`].
+#[unstable(feature = "realloc_zeroed", issue = "none")]
+#[must_use = "losing the pointer will leak memory"]
+#[inline]
+pub unsafe fn realloc_zeroed(ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+    unsafe { __rust_realloc_zeroed(ptr, layout.size(), layout.align(), new_size) }
+}
+
 #[cfg(not(test))]
 impl Global {
     #[inline]
@@ -194,17 +221,18 @@ impl Global {
 
             // SAFETY: `new_size` is non-zero as `old_size` is greater than or equal to `new_size`
             // as required by safety conditions. Other conditions must be upheld by the caller
-            old_size if old_layout.align() == new_layout.align() => unsafe {
+            _ if old_layout.align() == new_layout.align() => unsafe {
                 let new_size = new_layout.size();
 
                 // `realloc` probably checks for `new_size >= old_layout.size()` or something similar.
                 intrinsics::assume(new_size >= old_layout.size());
 
-                let raw_ptr = realloc(ptr.as_ptr(), old_layout, new_size);
+                let raw_ptr = if zeroed {
+                    realloc_zeroed(ptr.as_ptr(), old_layout, new_size)
+                } else {
+                    realloc(ptr.as_ptr(), old_layout, new_size)
+                };
                 let ptr = NonNull::new(raw_ptr).ok_or(AllocError)?;
-                if zeroed {
-                    raw_ptr.add(old_size).write_bytes(0, new_size - old_size);
-                }
                 Ok(NonNull::slice_from_raw_parts(ptr, new_size))
             },
 
